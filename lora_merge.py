@@ -25,7 +25,7 @@ class LoraMerger:
 
     @classmethod
     def INPUT_TYPES(s):
-        return {
+        base_inputs = {
             "required": {
                 "lora1": ("LoRA",),
                 "mode": (get_args(MODES),),
@@ -39,6 +39,14 @@ class LoraMerger:
                 "dtype": (["float32", "float16", "bfloat16"],),
             },
         }
+        
+        # Add extra LoRA input slots
+        extra_inputs = {}
+        for i in range(2, 6):  # Support up to 5 LoRA inputs
+            extra_inputs[f"lora{i}"] = ("LoRA", {"default": None})
+        
+        base_inputs["optional"] = extra_inputs
+        return base_inputs
 
     RETURN_TYPES = ("LoRA",)
     FUNCTION = "lora_merge"
@@ -48,33 +56,11 @@ class LoraMerger:
     def lora_merge(self, lora1,
                    mode: MODES = None,
                    density=None, device=None, dtype=None, **kwargs):
-        """
-            Merge multiple LoRA models using the specified mode.
-
-            This method merges the given LoRA models according to the specified mode, such as 'add', 'concat', 'ties',
-            'dare_linear', 'dare_ties', or 'magnitude_prune'. The merging process considers the up and down
-            projection matrices and their respective alpha values.
-
-            Args:
-                lora1 (dict): The first LoRA model to merge.
-                mode (str, optional): The merging mode to use. Options include 'add', 'concat', 'ties', 'dare_linear',
-                    'dare_ties', and 'magnitude_prune'. Default is None.
-                density (float, optional): The density parameter used for some merging modes.
-                device (torch.DeviceObjType, optional): The device to use for computations (e.g., 'cuda' or 'cpu').
-                dtype (torch.dtype, optional): The data type to use for computations (e.g., 'float32', 'float16', 'bfloat16').
-                **kwargs: Additional LoRA models to merge.
-
-            Returns:
-                tuple: A tuple containing the merged LoRA model.
-
-            Note:
-                - The method ensures that all tensors are moved to the specified device and cast to the specified data type.
-                - The merging process involves calculating task weights, scaling with alpha values, and combining
-                  up and down projection matrices based on the chosen mode.
-        """
+        # Collect all non-None LoRA inputs
         loras = [lora1]
         for k, v in kwargs.items():
-            loras.append(v)
+            if v is not None:
+                loras.append(v)
 
         self.validate_input(loras, mode)
 
@@ -145,7 +131,8 @@ class LoraSVDMerger:
 
     @classmethod
     def INPUT_TYPES(s):
-        return {
+        # Define base input types
+        base_inputs = {
             "required": {
                 "lora1": ("LoRA",),
                 "mode": (get_args(SVD_MODES),),
@@ -157,10 +144,10 @@ class LoraSVDMerger:
                 }),
                 "svd_rank": ("INT", {
                     "default": 16,
-                    "min": 1,  # Minimum value
-                    "max": 320,  # Maximum value
-                    "step": 1,  # Slider's step
-                    "display": "number"  # Cosmetic only: display as "number" or "slider"
+                    "min": 1,
+                    "max": 320,
+                    "step": 1,
+                    "display": "number"
                 }),
                 "svd_conv_rank": ("INT", {
                     "default": 1,
@@ -173,6 +160,15 @@ class LoraSVDMerger:
                 "dtype": (["float32", "float16", "bfloat16"],),
             },
         }
+        
+        # Add extra LoRA input slots
+        extra_inputs = {}
+        for i in range(2, 6):  # Support up to 5 LoRA inputs
+            extra_inputs[f"lora{i}"] = ("LoRA", {"default": None})
+        
+        # Merge input types
+        base_inputs["optional"] = extra_inputs
+        return base_inputs
 
     RETURN_TYPES = ("LoRA",)
     FUNCTION = "lora_svd_merge"
@@ -182,25 +178,12 @@ class LoraSVDMerger:
                        mode: SVD_MODES = "add_svd",
                        density: float = None, svd_rank: int = None, svd_conv_rank: int = None, device=None, dtype=None,
                        **kwargs):
-        """
-           Merge LoRA models using SVD and specified mode.
-
-           Args:
-               lora1: The first LoRA model.
-               mode: The merging mode to use.
-               density: The density parameter for some merging modes.
-               svd_rank: The rank for SVD.
-               svd_conv_rank: The convolution rank for SVD.
-               device: The device to use ('cuda' or 'cpu').
-               dtype: The data type for output
-               **kwargs: Additional LoRA models to merge.
-
-           Returns:
-               A tuple containing the merged LoRA model.
-        """
+        # Collect all non-None LoRA inputs
         loras = [lora1]
         for k, v in kwargs.items():
-            loras.append(v)
+            if v is not None:
+                loras.append(v)
+                
         dtype = to_dtype(dtype)
 
         self.validate_input(loras, mode)
@@ -238,30 +221,6 @@ class LoraSVDMerger:
 
     def build_weights(self, ups_downs_alphas, strengths,
                       mode: SVD_MODES, density, device):
-        """
-            Construct the combined weight tensor from multiple LoRA up and down tensors using different
-            merging modes.
-
-            This method supports both fully connected (2D) and convolutional (4D) tensors. It scales and
-            merges the up and down tensors based on the specified mode and density, performing task-specific
-            arithmetic operations.
-
-            Args:
-                ups_downs_alphas (List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]): A list of tuples,
-                    where each tuple contains the up tensor, down tensor, and alpha value.
-                strengths (torch.Tensor): A tensor containing the strength values for each set of up and down tensors.
-                mode (Literal["svd", "ties_svd", "dare_linear_svd", "dare_ties_svd", "magnitude_prune_svd"]):
-                    The mode to use for merging the weights. Each mode applies a different method of combining the tensors.
-                density (float): The density parameter used in certain modes like "ties" and "dare".
-                device (torch.DeviceObjType): The device on which to perform the computations (e.g., 'cuda' or 'cpu').
-
-            Returns:
-                torch.Tensor: The combined weight tensor resulting from the specified merging process.
-
-            Note:
-                - For convolutional tensors, special handling is applied depending on the kernel size.
-                - The weight tensors are scaled by their respective alpha values and normalized by their rank.
-        """
         up_1, down_1, alpha_1 = ups_downs_alphas[0]
         conv2d = len(down_1.size()) == 4
         kernel_size = None if not conv2d else down_1.size()[2:4]
@@ -295,29 +254,6 @@ class LoraSVDMerger:
         return weight
 
     def svd(self, weights: torch.Tensor, svd_rank: int, svd_conv_rank: int, device: str):
-        """
-            Perform Singular Value Decomposition (SVD) on the given weights tensor and return the
-            decomposed matrices with the specified ranks.
-
-            This method supports both 2D (fully connected) and 4D (convolutional) weight tensors. For
-            convolutional tensors, it handles both 1x1 and other kernel sizes. The ranks for decomposition
-            are adjusted based on the input tensor's dimensions and the specified rank constraints.
-
-            Args:
-                weights (torch.Tensor): The input weight tensor to decompose. Should be either a 2D or 4D tensor.
-                svd_rank (int): The rank for SVD decomposition for fully connected layers.
-                svd_conv_rank (int): The rank for SVD decomposition for convolutional layers with kernel sizes other than 1x1.
-                device (torch.DeviceObjType): The device on which to perform the computations (e.g., 'cuda' or 'cpu').
-
-            Returns:
-                Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
-                    - up_weight: The U matrix after SVD decomposition, representing the left singular vectors.
-                    - down_weight: The Vh matrix after SVD decomposition, representing the right singular vectors.
-                    - module_new_rank: A tensor containing the new rank used for the decomposition.
-
-            Note:
-                SVD only supports float32 data type, so the input weights tensor is converted to float32 if necessary.
-        """
         weights = weights.to(dtype=torch.float32, device=device)  # SVD only supports float32
 
         conv2d = len(weights.size()) == 4
@@ -361,18 +297,6 @@ class LoraSVDMerger:
 
 @torch.no_grad()
 def calc_up_down_alphas(loras, key, fill_with_empty_tensor=False):
-    """
-       Calculate up, down tensors and alphas for a given key.
-
-       Args:
-           loras: List of LoRA models.
-           key: The key to calculate values for.
-           fill_with_empty_tensor=False: create a zero tensor in the case of a LoRA doesn't contain the key
-
-       Returns:
-           List of tuples containing up, down tensors and alpha values.
-    """
-
     up_key = key + ".lora_up.weight"
     down_key = key + ".lora_down.weight"
     alpha_key = key + ".alpha"
