@@ -114,7 +114,17 @@ class LoraMerger:
                             magnitude_prune(down_tensors, weights, density))
             elif mode == "combine":
                 for lora in loras:
-                    weight.update(lora['lora'])
+                    strength_model = lora.get('strength_model', 1.0)
+                    strength_clip = lora.get('strength_clip', 1.0)
+                    for key, tensor in lora['lora'].items():
+                        # Determine which strength to use
+                        strength = strength_clip if 'lora_te' in key else strength_model
+                        
+                        # Apply strength by scaling the 'up' or 'B' tensor
+                        if strength != 1.0 and ('.lora_up.weight' in key or '.lora_B.weight' in key):
+                            weight[key] = tensor * strength
+                        else:
+                            weight[key] = tensor
                 # Skip the rest of the loop, as we have all the weights
                 break
 
