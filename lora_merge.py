@@ -8,7 +8,7 @@ from .peft_utils import task_arithmetic, ties, dare_linear, dare_ties, magnitude
 from .utility import find_network_dim, to_dtype
 
 CLAMP_QUANTILE = 0.99
-MODES = Literal["add", "concat", "ties", "dare_linear", "dare_ties", "magnitude_prune"]
+MODES = Literal["add", "concat", "ties", "dare_linear", "dare_ties", "magnitude_prune", "combine"]
 SVD_MODES = Literal["add_svd", "ties_svd", "dare_linear_svd", "dare_ties_svd", "magnitude_prune_svd"]
 
 
@@ -109,9 +109,14 @@ class LoraMerger:
             elif mode == "dare_ties":
                 up, down = (dare_ties(up_tensors, weights, density),
                             dare_ties(down_tensors, weights, density))
-            else:  # mode == "magnitude_prune_svd":
+            elif mode == "magnitude_prune":
                 up, down = (magnitude_prune(up_tensors, weights, density),
                             magnitude_prune(down_tensors, weights, density))
+            elif mode == "combine":
+                for lora in loras:
+                    weight.update(lora['lora'])
+                # Skip the rest of the loop, as we have all the weights
+                break
 
             weight[key + ".lora_up.weight"] = up.to('cpu', dtype=torch.float32)
             weight[key + ".lora_down.weight"] = down.to('cpu', dtype=torch.float32)
@@ -124,6 +129,9 @@ class LoraMerger:
         return (lora_out,)
 
     def validate_input(self, loras, mode):
+        if mode == "combine":
+            return
+
         dims = [find_network_dim(lora['lora']) for lora in loras]
         valid_dims = [d for d in dims if d is not None]
         if valid_dims and (min(valid_dims) != max(valid_dims)):
