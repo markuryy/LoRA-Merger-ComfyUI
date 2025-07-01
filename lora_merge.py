@@ -125,7 +125,8 @@ class LoraMerger:
 
     def validate_input(self, loras, mode):
         dims = [find_network_dim(lora['lora']) for lora in loras]
-        if min(dims) != max(dims):
+        valid_dims = [d for d in dims if d is not None]
+        if valid_dims and (min(valid_dims) != max(valid_dims)):
             raise Exception("LoRAs with different ranks not allowed in LoraMerger. Use SVD merge.")
         if mode not in get_args(MODES):
             raise Exception(f"Invalid / unsupported mode {mode}")
