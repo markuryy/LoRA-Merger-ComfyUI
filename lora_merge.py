@@ -71,12 +71,19 @@ class LoraMerger:
         # lora = up @ down * alpha / rank
         pbar = comfy.utils.ProgressBar(len(keys))
         for key in keys:
+            # Find LoRAs that contain the current key
+            down_key = key + ".lora_down.weight"
+            key_owners = [lora for lora in loras if down_key in lora['lora']]
+
+            if not key_owners:
+                continue
+
             # Build taskTensor weights
             scale_key = "strength_clip" if "lora_te" in key else "strength_model"
-            weights = torch.tensor([w[scale_key] for w in loras]).to(device, dtype=dtype)
+            weights = torch.tensor([w[scale_key] for w in key_owners]).to(device, dtype=dtype)
 
             # Calculate up and down nets and their alphas
-            ups_downs_alphas = calc_up_down_alphas(loras, key)
+            ups_downs_alphas = calc_up_down_alphas(key_owners, key)
 
             # Scale weights with alpha values
             ups_downs_alphas, alpha_1 = scale_alphas(ups_downs_alphas)
